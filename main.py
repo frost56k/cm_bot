@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from typing import Tuple
 
 # Загрузка переменных окружения
-load_dotenv()
-
+load_dotenv('.env')
 # Настройка логирования
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -33,19 +33,17 @@ def load_bot_mind(filename: str = "bot_mind.json") -> str:
         return ""
 
 # Инициализация OpenAI
-def initialize_openai() -> tuple[OpenAI, str]:
+def initialize_openai() -> Tuple[OpenAI, str]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        logging.error("API-ключ OpenAI не найден в переменных окружения.")
-        return None, ""
-
+        raise ValueError("API-ключ OpenAI не найден в переменных окружения.")
+    
     system_content = load_bot_mind()
     if not system_content:
-        logging.error("Системное сообщение не загружено.")
-        return None, ""
-
+        raise ValueError("Системное сообщение не загружено.")
+    
     client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
+        base_url="https://openrouter.ai/api/v1/",
         api_key=api_key
     )
     return client, system_content
@@ -107,15 +105,11 @@ def main() -> None:
     if not bot_token:
         logging.error("Токен Telegram не найден в переменных окружения.")
         return
-
     application = Application.builder().token(bot_token).build()
-
     # Добавляем обработчики команд
     application.add_handler(CommandHandler("start", start))
-
     # Обработчик текстовых сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     logging.info("Бот запущен!")
     application.run_polling()
 
