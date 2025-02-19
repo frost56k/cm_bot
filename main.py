@@ -3,6 +3,7 @@ import sys
 import re
 import json
 import logging
+from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 from telegram import Update
@@ -11,6 +12,7 @@ from typing import Tuple
 
 # Загрузка переменных окружения
 load_dotenv('.env')
+
 # Настройка логирования
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -32,6 +34,22 @@ def load_bot_mind(filename: str = "bot_mind.json") -> str:
         logging.error(f"Ошибка при загрузке системного сообщения: {e}")
         return ""
 
+# Функции для загрузки и сохранения переписки
+def load_conversations():
+    if os.path.exists('conversations.json'):
+        try:
+            with open('conversations.json', 'r', encoding='utf-8') as file:
+                return json.load(file)
+        except json.JSONDecodeError:
+            # Если файл пуст или повреждён, возвращаем пустой словарь
+            return {}
+    else:
+        return {}
+
+def save_conversations(conversations):
+    with open('conversations.json', 'w', encoding='utf-8') as file:
+        json.dump(conversations, file, ensure_ascii=False, indent=4)
+
 # Инициализация OpenAI
 def initialize_openai() -> Tuple[OpenAI, str]:
     api_key = os.getenv("OPENAI_API_KEY")
@@ -43,8 +61,8 @@ def initialize_openai() -> Tuple[OpenAI, str]:
         raise ValueError("Системное сообщение не загружено.")
     
     client = OpenAI(
-        base_url="https://openrouter.ai/api/v1/",
-        api_key=api_key
+       base_url="https://openrouter.ai/api/v1",
+       api_key=api_key
     )
     return client, system_content
 
@@ -67,8 +85,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # Обработчик сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.message.from_user
+    user_id = str(user.id)
+    username = user.username or "NoUsername"
+    first_name = user.first_name
+    last_name = user.last_name or ""
     user_message = update.message.text
-    logging.info(f"Получено сообщение: {user_message}")
+    timestamp = datetime.now().isoformat()
+
+    logging.info(f"Получено сообщение от {username} ({user_id}): {user_message}")
+
+    # Загрузка текущих переписок
+    conversations = load_conversations()
+
+    # Инициализация истории для нового пользователя
+    if user_id not in conversations:
+        conversations[user_id] = {
+            "user_info": {
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name
+            },
+            "messages": []
+        }
+
+    # Сохранение сообщения пользователя
+    conversations[user_id]["messages"].append({
+        "role": "user",
+        "message": user_message,
+        "timestamp": timestamp
+    })
+
+    save_conversations(conversations)
 
     if not client or not system_content:
         await update.message.reply_text("Ошибка системы. Попробуйте позже.")
@@ -84,7 +132,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 {"role": "user", "content": user_message}
             ],
             temperature=0.5,
-            max_tokens=700
+            max_tokens=700,
+            stream=False
         )
 
         response = completion.choices[0].message.content if completion.choices else "Не удалось получить ответ."
@@ -95,9 +144,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = "Ошибка обработки запроса. Попробуйте позже."
 
     await loading_message.delete()
-    response = escape_markdown_v2(response)
-    await update.message.reply_text(response, parse_mode="MarkdownV2")
+    response_escaped = escape_markdown_v2(response)
+    await update.message.reply_text(response_escaped, parse_mode="MarkdownV2")
 
+    # Сохранение ответа бота
+    timestamp = datetime.now().isoformat()
+    conversations[user_id]["messages"].append({
+        "role": "bot",
+        "message": response,
+        "timestamp": timestamp
+    })
+
+    save_conversations(conversations)
 
 # Основная функция
 def main() -> None:
@@ -105,11 +163,15 @@ def main() -> None:
     if not bot_token:
         logging.error("Токен Telegram не найден в переменных окружения.")
         return
+
     application = Application.builder().token(bot_token).build()
+
     # Добавляем обработчики команд
     application.add_handler(CommandHandler("start", start))
+
     # Обработчик текстовых сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
     logging.info("Бот запущен!")
     application.run_polling()
 
