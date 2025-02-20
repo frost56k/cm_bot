@@ -5,13 +5,18 @@ import json
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from openai import OpenAI
+import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from typing import Tuple
 
 # Загрузка переменных окружения
 load_dotenv('.env')
+
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("API-ключ OpenRouter не найден")
+print(api_key)  # Для проверки
 
 # Настройка логирования
 logging.basicConfig(
@@ -51,23 +56,19 @@ def save_conversations(conversations):
         json.dump(conversations, file, ensure_ascii=False, indent=4)
 
 # Инициализация OpenAI
-def initialize_openai() -> Tuple[OpenAI, str]:
-    api_key = os.getenv("OPENAI_API_KEY")
+def initialize_openai() -> Tuple[str, str]:
+    api_key = os.getenv("OPENAI_API_KEY")  # Убедитесь, что переменная окружения правильно задана
     if not api_key:
-        raise ValueError("API-ключ OpenAI не найден в переменных окружения.")
+        raise ValueError("API-ключ OpenRouter не найден")
     
     system_content = load_bot_mind()
     if not system_content:
-        raise ValueError("Системное сообщение не загружено.")
+        raise ValueError("Системное сообщение не загружено")
     
-    client = OpenAI(
-       base_url="https://openrouter.ai/api/v1",
-       api_key=api_key
-    )
-    return client, system_content
+    return api_key, system_content
 
 # Инициализация клиента
-client, system_content = initialize_openai()
+api_key, system_content = initialize_openai()
 
 # Обработчики команд
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -118,40 +119,72 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     save_conversations(conversations)
 
-    if not client or not system_content:
+    if not api_key or not system_content:
         await update.message.reply_text("Ошибка системы. Попробуйте позже.")
         return
 
     loading_message = await update.message.reply_text("⏳ Мастер думает...")
 
+    # Извлечение истории переписки
+    user_conversation = conversations[user_id]["messages"]
+
+    # Преобразование истории в формат для API
+    conversation_history = []
+    for msg in user_conversation:
+        role = msg["role"]
+        if role == "bot":
+            role = "assistant"  # Меняем 'bot' на 'assistant'
+        conversation_history.append({
+            "role": role,
+            "content": msg["message"]
+        })
+
+    # Добавление системного сообщения в начало
+    conversation_history.insert(0, {"role": "system", "content": system_content})
+
+    # Ограничение длины истории
+    max_history_length = 20  # Настрой это значение по необходимости
+    if len(conversation_history) > max_history_length:
+        conversation_history = [conversation_history[0]] + conversation_history[-(max_history_length - 1):]
+
     try:
-        completion = client.chat.completions.create(
-            model="deepseek/deepseek-r1:free",
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.5,
-            max_tokens=700,
-            stream=False
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates",
+                "X-Title": "Coffee Master Bot"
+            },
+            data=json.dumps({
+                "model": "deepseek/deepseek-chat:free",
+                "messages": conversation_history,
+                "temperature": 0.5,
+                "max_tokens": 700
+            })
         )
 
-        response = completion.choices[0].message.content if completion.choices else "Не удалось получить ответ."
-        logging.info(f"Ответ от API: {response}")
+        response_json = response.json()
+        print(response_json)
+        if response_json.get('choices'):
+            response_text = response_json['choices'][0]['message']['content']
+        else:
+            response_text = "Не удалось получить ответ."
+        logging.info(f"Ответ от API: {response_text}")
 
     except Exception as api_error:
         logging.error(f"Ошибка API: {api_error}")
-        response = "Ошибка обработки запроса. Попробуйте позже."
+        response_text = "Ошибка обработки запроса. Попробуйте позже."
 
     await loading_message.delete()
-    response_escaped = escape_markdown_v2(response)
+    response_escaped = escape_markdown_v2(response_text)
     await update.message.reply_text(response_escaped, parse_mode="MarkdownV2")
 
     # Сохранение ответа бота
     timestamp = datetime.now().isoformat()
     conversations[user_id]["messages"].append({
-        "role": "bot",
-        "message": response,
+        "role": "assistant",
+        "message": response_text,
         "timestamp": timestamp
     })
 
