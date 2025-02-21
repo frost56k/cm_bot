@@ -1,212 +1,196 @@
 import os
-import sys
-import re
 import json
 import logging
 from datetime import datetime
+from typing import Dict, Any
+import asyncio
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import Message
+from openai import OpenAI
 from dotenv import load_dotenv
-import requests
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from typing import Tuple
+import time
+import aiofiles
 
-# Загрузка переменных окружения
-load_dotenv('.env')
+# Настройка логов
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("API-ключ OpenRouter не найден")
-print(api_key)  # Для проверки
+# Загружаем переменные окружения
+load_dotenv()
 
-# Настройка логирования
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-    stream=sys.stdout
+# Конфигурация
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+CONVERSATIONS_FILE = "conversations.json"
+BOT_MIND_FILE = "bot_mind.json"
+
+if not os.path.exists(CONVERSATIONS_FILE):
+    with open(CONVERSATIONS_FILE, 'w') as f:
+        json.dump({}, f)
+
+# Инициализация бота и OpenAI
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
 )
 
-def escape_markdown_v2(text: str) -> str:
-    """Экранирует специальные символы для Markdown V2"""
-    escape_chars = r"_*[]()~`>#+-=|{}.!"
-    return re.sub(r"([" + re.escape(escape_chars) + r"])", r"\\\1", text)
+# Глобальный кэш
+conversations_cache = {}
 
-# Загрузка системного сообщения
-def load_bot_mind(filename: str = "bot_mind.json") -> str:
+def load_bot_mind() -> str:
+    """Загрузка всех полей из bot_mind.json"""
     try:
-        with open(filename, "r", encoding="utf-8") as file:
-            return file.read()
+        with open(BOT_MIND_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return json.dumps(data, ensure_ascii=False, indent=2)
     except Exception as e:
-        logging.error(f"Ошибка при загрузке системного сообщения: {e}")
+        logger.error(f"Error loading bot mind: {e}")
         return ""
 
-# Функции для загрузки и сохранения переписки
-def load_conversations():
-    if os.path.exists('conversations.json'):
-        try:
-            with open('conversations.json', 'r', encoding='utf-8') as file:
-                return json.load(file)
-        except json.JSONDecodeError:
-            # Если файл пуст или повреждён, возвращаем пустой словарь
-            return {}
-    else:
-        return {}
-
-def save_conversations(conversations):
-    with open('conversations.json', 'w', encoding='utf-8') as file:
-        json.dump(conversations, file, ensure_ascii=False, indent=4)
-
-# Инициализация OpenAI
-def initialize_openai() -> Tuple[str, str]:
-    api_key = os.getenv("OPENAI_API_KEY")  # Убедитесь, что переменная окружения правильно задана
-    if not api_key:
-        raise ValueError("API-ключ OpenRouter не найден")
-    
-    system_content = load_bot_mind()
-    if not system_content:
-        raise ValueError("Системное сообщение не загружено")
-    
-    return api_key, system_content
-
-# Инициализация клиента
-api_key, system_content = initialize_openai()
-
-# Обработчики команд
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_name = update.message.from_user.first_name
-    welcome_text = (
-        f"Привет, {user_name}! Я — Кофе Мастер, ваш виртуальный помощник по ремонту кофемашин. 🛠️\n\n"
-        f"Наш чат-бот проходит тестирование. Если увидите ошибки, пишите: coffeemasterbel@gmail.com\n\n"
-        "📍 Где нас найти:\n"
-        "🔹 Instagram: [@coffee1master](https://www.instagram.com/coffee1master/)\n"
-        "🔹 TikTok: [@coffee1master](https://www.tiktok.com/@coffee1master)\n"
-        "🔹 YouTube: [@Coffee1master](https://www.youtube.com/@Coffee1master)\n\n"
-        "/start - Перезапуск бота"
-    )
-    await update.message.reply_text(welcome_text, disable_web_page_preview=True)
-
-# Обработчик сообщений
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.message.from_user
-    user_id = str(user.id)
-    username = user.username or "NoUsername"
-    first_name = user.first_name
-    last_name = user.last_name or ""
-    user_message = update.message.text
-    timestamp = datetime.now().isoformat()
-
-    logging.info(f"Получено сообщение от {username} ({user_id}): {user_message}")
-
-    # Загрузка текущих переписок
-    conversations = load_conversations()
-
-    # Инициализация истории для нового пользователя
-    if user_id not in conversations:
-        conversations[user_id] = {
-            "user_info": {
-                "username": username,
-                "first_name": first_name,
-                "last_name": last_name
-            },
-            "messages": []
-        }
-
-    # Сохранение сообщения пользователя
-    conversations[user_id]["messages"].append({
-        "role": "user",
-        "message": user_message,
-        "timestamp": timestamp
-    })
-
-    save_conversations(conversations)
-
-    if not api_key or not system_content:
-        await update.message.reply_text("Ошибка системы. Попробуйте позже.")
-        return
-
-    loading_message = await update.message.reply_text("⏳ Мастер думает...")
-
-    # Извлечение истории переписки
-    user_conversation = conversations[user_id]["messages"]
-
-    # Преобразование истории в формат для API
-    conversation_history = []
-    for msg in user_conversation:
-        role = msg["role"]
-        if role == "bot":
-            role = "assistant"  # Меняем 'bot' на 'assistant'
-        conversation_history.append({
-            "role": role,
-            "content": msg["message"]
-        })
-
-    # Добавление системного сообщения в начало
-    conversation_history.insert(0, {"role": "system", "content": system_content})
-
-    # Ограничение длины истории
-    max_history_length = 20  # Настрой это значение по необходимости
-    if len(conversation_history) > max_history_length:
-        conversation_history = [conversation_history[0]] + conversation_history[-(max_history_length - 1):]
-
+async def load_conversations_to_cache():
+    """Загружает данные из файла в кэш"""
+    global conversations_cache
     try:
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates",
-                "X-Title": "Coffee Master Bot"
-            },
-            data=json.dumps({
-                "model": "deepseek/deepseek-chat:free",
-                "messages": conversation_history,
-                "temperature": 0.5,
-                "max_tokens": 700
-            })
-        )
+        async with aiofiles.open(CONVERSATIONS_FILE, 'r', encoding='utf-8') as f:
+            content = await f.read()
+            conversations_cache = json.loads(content) if content else {}
+        logger.info("Кэш загружен из файла")
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке кэша: {e}")
+        conversations_cache = {}
 
-        response_json = response.json()
-        print(response_json)
-        if response_json.get('choices'):
-            response_text = response_json['choices'][0]['message']['content']
-        else:
-            response_text = "Не удалось получить ответ."
-        logging.info(f"Ответ от API: {response_text}")
+async def save_conversations_from_cache():
+    """Сохраняет кэш в файл"""
+    try:
+        async with aiofiles.open(CONVERSATIONS_FILE, 'w', encoding='utf-8') as f:
+            await f.write(json.dumps(conversations_cache, indent=4, ensure_ascii=False))
+        logger.info("Кэш сохранен в файл")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении кэша: {e}")
 
-    except Exception as api_error:
-        logging.error(f"Ошибка API: {api_error}")
-        response_text = "Ошибка обработки запроса. Попробуйте позже."
+async def periodic_save():
+    """Периодически сохраняет кэш через некоторое время"""
+    while True:
+        await asyncio.sleep(300)  # сохранение 
+        await save_conversations_from_cache()
 
-    await loading_message.delete()
-    response_escaped = escape_markdown_v2(response_text)
-    await update.message.reply_text(response_escaped, parse_mode="MarkdownV2")
+async def get_conversation(user_id: int) -> Dict[str, Any]:
+    """Получает историю чата из кэша"""
+    return conversations_cache.get(str(user_id), {})
 
-    # Сохранение ответа бота
-    timestamp = datetime.now().isoformat()
-    conversations[user_id]["messages"].append({
-        "role": "assistant",
-        "message": response_text,
-        "timestamp": timestamp
+async def save_conversation(user_id: int, data: Dict[str, Any]):
+    """Сохраняет данные в кэш"""
+    conversations_cache[str(user_id)] = data
+
+async def update_chat_history(user_id: int, message: str, role: str = "user"):
+    """Обновляет историю чата"""
+    conversation = await get_conversation(user_id) or {"user_info": {}, "messages": []}
+    conversation["messages"].append({
+        "role": role,
+        "message": message,
+        "timestamp": datetime.now().isoformat()
     })
+    if len(conversation["messages"]) > 20:
+        conversation["messages"] = conversation["messages"][-20:]
+    await save_conversation(user_id, conversation)
+    logger.info(f"Обновлена история для пользователя {user_id}: {conversation}")
 
-    save_conversations(conversations)
+async def on_shutdown(dp: Dispatcher):
+    """Сохраняет кэш при завершении работы бота"""
+    await save_conversations_from_cache()
+    logger.info("Бот остановлен, кэш сохранен")
 
-# Основная функция
-def main() -> None:
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        logging.error("Токен Telegram не найден в переменных окружения.")
-        return
+dp.shutdown.register(on_shutdown)
 
-    application = Application.builder().token(bot_token).build()
+@dp.message(Command("start"))
+async def start_handler(msg: Message):
+    """Обработчик команды /start"""
+    user = msg.from_user
+    conversation = await get_conversation(user.id) or {"user_info": {}, "messages": []}
+    
+    if not conversation.get("user_info"):
+        conversation["user_info"] = {
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name
+        }
+        await save_conversation(user.id, conversation)
+        logger.info(f"Сохранена информация о пользователе: {conversation['user_info']}")
+    
+    welcome_text = (
+        f"Привет, {user.full_name}! Я — Кофе Мастер, ваш виртуальный помощник по ремонту кофемашин. 🛠️\n\n"
+        "Наш чат-бот проходит тестирование. Если увидите ошибки, пишите: coffeemasterbel@gmail.com"
+    )
+    await msg.answer(welcome_text)
 
-    # Добавляем обработчики команд
-    application.add_handler(CommandHandler("start", start))
+async def send_typing_indicator(chat_id):
+    """Отправляет индикатор набора сообщения"""
+    while True:
+        await bot.send_chat_action(chat_id, "typing")
+        await asyncio.sleep(10)
 
-    # Обработчик текстовых сообщений
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+@dp.message(F.text)
+async def message_handler(msg: Message):
+    """Обработчик текстовых сообщений"""
+    user_id = msg.from_user.id
+    user = msg.from_user
+    user_message = msg.text
+    start_time = time.time()
 
-    logging.info("Бот запущен!")
-    application.run_polling()
+    logger.info(f"Начало обработки сообщения: {start_time}")
+    logger.info(f"Пользователь {user_id} написал: {user_message}")
+    
+    conversation = await get_conversation(user_id) or {"user_info": {}, "messages": []}
+    
+    if not conversation.get("user_info"):
+        conversation["user_info"] = {
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name
+        }
+        await save_conversation(user_id, conversation)
+        logger.info(f"Сохранена информация о пользователе: {conversation['user_info']}")
+    
+    await bot.send_chat_action(msg.chat.id, "typing")
+    await update_chat_history(user_id, user_message)
+    logger.info(f"История обновлена: {time.time() - start_time} сек")
+
+    messages = conversation.get("messages", [])
+    system_prompt = load_bot_mind()
+    messages_for_ai = [{"role": "system", "content": system_prompt}] + [
+        {"role": m["role"], "content": m["message"]} for m in messages[-20:]
+    ]
+    
+    logger.info(f"Запрос к ИИ с системным промптом: {messages_for_ai}")
+    
+    try:
+        completion = client.chat.completions.create(
+            model="deepseek/deepseek-r1:free",
+            messages=messages_for_ai,
+            extra_headers={
+                "HTTP-Referer": "https://github.com/your-repo",
+                "X-Title": "Coffee Master Bot"
+            }
+        )
+        ai_response = completion.choices[0].message.content
+        logger.info(f"ИИ ответил: {ai_response}")
+        
+        await update_chat_history(user_id, ai_response, "assistant")
+        await msg.answer(ai_response)
+        logger.info(f"Ответ отправлен: {time.time() - start_time} сек")
+    except Exception as e:
+        logger.error(f"API Error: {e}")
+        await msg.answer("⚠️ Произошла ошибка. Попробуйте позже.")
+
+async def main():
+    """Главная функция для запуска бота"""
+    await load_conversations_to_cache()  # Загружаем кэш
+    asyncio.create_task(periodic_save())  # Запускаем периодическое сохранение
+    logger.info("Запуск бота")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
