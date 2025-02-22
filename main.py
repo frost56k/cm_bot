@@ -76,7 +76,7 @@ async def save_conversations_from_cache():
 async def periodic_save():
     """Периодически сохраняет кэш через некоторое время"""
     while True:
-        await asyncio.sleep(10)  # Уменьшаем до 10 секунд для теста
+        await asyncio.sleep(30)  # Уменьшаем до 30 секунд
         await save_conversations_from_cache()
         logger.info("Периодическое сохранение кэша выполнено")
 
@@ -206,7 +206,7 @@ def get_coffee_detail_keyboard(coffee_index):
             InlineKeyboardButton(text="1000г", callback_data=f"weight_{coffee_index}_1000")
         ],
         [
-            InlineKeyboardButton(text="Посмотреть корзину", callback_data="view_cart"),
+            InlineKeyboardButton(text="Моя корзина", callback_data="view_cart"),
             InlineKeyboardButton(text="Назад к каталогу", callback_data="coffee_catalog")
         ]
     ])
@@ -276,8 +276,8 @@ async def process_weight_selection(callback: CallbackQuery):
         
         confirm_keyboard = InlineKeyboardMarkup(inline_keyboard=[
        [
-        InlineKeyboardButton(text="В корзину", callback_data=f"add_to_cart_{coffee_index}_{weight}"),
-        InlineKeyboardButton(text="Продолжить покупку", callback_data=f"back_to_details_{coffee_index}")
+        InlineKeyboardButton(text="Подтверждаю", callback_data=f"add_to_cart_{coffee_index}_{weight}"),
+        InlineKeyboardButton(text="Отмена", callback_data=f"back_to_details_{coffee_index}")
        ]
     ])
         
@@ -398,7 +398,7 @@ async def add_to_cart_handler(callback: CallbackQuery):
             text=f"*{coffee['name']}* ({weight}г) добавлено в корзину!",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Положить в карзину", callback_data="view_cart")],
+                [InlineKeyboardButton(text="В корзину", callback_data="view_cart")],
                 [InlineKeyboardButton(text="Продолжить покупку", callback_data=f"back_to_details_{coffee_index}")]
             ])
         )
