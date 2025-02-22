@@ -32,11 +32,16 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CONVERSATIONS_FILE = "conversations.json"
 BOT_MIND_FILE = "bot_mind.json"
+ORDER_NUMBER_FILE = "order_number.json"
 ADMIN_ID = 222467350  # Укажите ID администратора
 
 if not os.path.exists(CONVERSATIONS_FILE):
     with open(CONVERSATIONS_FILE, 'w') as f:
         json.dump({}, f)
+
+if not os.path.exists(ORDER_NUMBER_FILE):
+    with open(ORDER_NUMBER_FILE, 'w', encoding='utf-8') as f:
+        json.dump({"last_order_number": 0}, f)        
 
 # Инициализация бота и OpenAI
 bot = Bot(token=BOT_TOKEN)
@@ -58,6 +63,21 @@ def load_bot_mind() -> str:
     except Exception as e:
         logger.error(f"Error loading bot mind: {e}")
         return ""  
+    
+def generate_order_number() -> str:
+    """Генерирует шестизначный номер заказа (например, 000001)"""
+    with open(ORDER_NUMBER_FILE, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        last_order_number = data["last_order_number"]
+    
+    new_order_number = last_order_number + 1
+    
+    with open(ORDER_NUMBER_FILE, 'w', encoding='utf-8') as f:
+        json.dump({"last_order_number": new_order_number}, f, ensure_ascii=False, indent=2)
+    
+    formatted_number = f"{new_order_number:06d}"
+    logger.info(f"Сгенерирован новый номер заказа: {formatted_number}")
+    return formatted_number    
 
 async def load_conversations_to_cache():
     """Загружает данные из файла в кэш"""
@@ -155,30 +175,34 @@ async def add_to_cart(user_id: int, coffee_index: int, weight: str):
     logger.info(f"Добавлен товар в корзину: {cart_item}, осталось {weight}г: {coffee[quantity_key]}")
     logger.info(f"Текущее состояние корзины в кэше: {conversation['cart']}")
 
-async def clear_cart(user_id: int):
-    """Очищает корзину и возвращает количество для каждого веса"""
+async def clear_cart(user_id: int, restore_quantity: bool = False):
+    """Очищает корзину пользователя, с опцией возврата остатков"""
     conversation = await get_conversation(user_id) or {"user_info": {}, "messages": [], "cart": []}
     if "cart" not in conversation or not conversation["cart"]:
         return
     
-    with open(BOT_MIND_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        coffee_list = data.get("coffee_shop", [])
+    if restore_quantity:
+        # Загружаем bot_mind.json и возвращаем остатки
+        with open(BOT_MIND_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            coffee_list = data.get("coffee_shop", [])
+        
+        for item in conversation["cart"]:
+            coffee_index = item["coffee_index"]
+            weight = item["weight"]
+            coffee = coffee_list[coffee_index]
+            quantity_key = f"quantity_{weight}g"
+            coffee[quantity_key] += 1
+        
+        with open(BOT_MIND_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.info(f"Остатки возвращены в bot_mind.json для пользователя {user_id}")
     
-    for item in conversation["cart"]:
-        coffee_index = item["coffee_index"]
-        weight = item["weight"]
-        coffee = coffee_list[coffee_index]
-        quantity_key = f"quantity_{weight}g"
-        coffee[quantity_key] += 1
-    
+    # Очищаем корзину
     conversation["cart"] = []
     await save_conversation(user_id, conversation)
     
-    with open(BOT_MIND_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    
-    logger.info(f"Корзина пользователя {user_id} очищена, количество возвращено")
+    logger.info(f"Корзина пользователя {user_id} очищена, restore_quantity={restore_quantity}")
 
 def format_cart(cart: list) -> str:
     """Форматирует содержимое корзины для отображения"""
@@ -588,7 +612,7 @@ async def pickup_cash_handler(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(OrderStates.waiting_for_comment)
 async def process_order_comment(message: Message, state: FSMContext):
-    """Обрабатывает комментарий к заказу и отправляет уведомление администратору"""
+    """Обрабатывает комментарий к заказу и отправляет уведомления с номером заказа"""
     user_id = message.from_user.id
     comment = message.text.strip()
     
@@ -597,23 +621,25 @@ async def process_order_comment(message: Message, state: FSMContext):
     cart = data["cart"]
     total = data["total"]
     
+    # Генерируем номер заказа
+    order_number = generate_order_number()
+    
     # Формируем текст заказа для пользователя
     if comment.lower() == "нет":
         comment = "Без комментария"
     
-    order_text = (
-        f"✅ *Заказ оформлен!*\n"
+    user_order_text = (
+        f"✅ *Заказ №{order_number} оформлен!*\n"
         f"{format_cart(cart)}\n"
         f"Способ оплаты: Самовывоз (оплата при получении)\n"
-        f"Сумма к оплате: {total:.2f} руб.\n"
-        f"Комментарий: {comment}\n\n"
-        f"Заберите ваш заказ по адресу: город Минск ул. Неждановой д. 37 понедельник - пятница 9-17 часов \n"
+        f"Комментарий: {comment}\n"
+        f"Заберите ваш заказ по адресу: город Минск ул. Неждановой д. 37 понедельник - пятница 9-17 часов\n"
         f"Оплата наличными или картой при получении."
     )
     
     await bot.send_message(
         chat_id=message.chat.id,
-        text=order_text,
+        text=user_order_text,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Вернуться в магазин", callback_data="coffee_catalog")]
@@ -622,7 +648,7 @@ async def process_order_comment(message: Message, state: FSMContext):
     
     # Формируем уведомление для администратора
     admin_text = (
-        f"🔔 *Новый заказ!*\n"
+        f"🔔 *Новый заказ №{order_number}!*\n"
         f"Пользователь: {user_id} (@{message.from_user.username})\n"
         f"{format_cart(cart)}\n"
         f"Способ оплаты: Самовывоз (оплата при получении)\n"
@@ -637,70 +663,12 @@ async def process_order_comment(message: Message, state: FSMContext):
             parse_mode="Markdown"
         )
     except Exception as e:
-        logger.error(f"Ошибка при отправке уведомления администратору: {e}")
+        logger.error(f"Ошибка при отправке уведомления администратору {ADMIN_ID}: {e}")
     
-    # Очищаем корзину и сбрасываем состояние
-    await clear_cart(user_id)
+    # Очищаем корзину после оформления, не возвращая остатки
+    await clear_cart(user_id, restore_quantity=False)
     await save_conversations_from_cache()
     await state.clear()
-
-@dp.message(OrderStates.waiting_for_comment)
-async def process_order_comment(message: Message, state: FSMContext):
-    """Обрабатывает комментарий к заказу и отправляет уведомление администратору"""
-    user_id = message.from_user.id
-    comment = message.text.strip()
-    
-    # Получаем данные из состояния
-    data = await state.get_data()
-    cart = data["cart"]
-    total = data["total"]
-    
-    # Формируем текст заказа для пользователя
-    if comment.lower() == "нет":
-        comment = "Без комментария"
-    
-    order_text = (
-        f"✅ *Заказ оформлен!*\n"
-        f"{format_cart(cart)}\n"
-        f"Способ оплаты: Самовывоз (оплата при получении)\n"
-        f"Сумма к оплате: {total:.2f} руб.\n"
-        f"Комментарий: {comment}\n\n"
-        f"Заберите ваш заказ по адресу: город Минск ул. Неждановой д. 37 понедельник - пятница 9-17 часов \n"
-        f"Оплата наличными или картой при получении."
-    )
-    
-    await bot.send_message(
-        chat_id=message.chat.id,
-        text=order_text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Вернуться в магазин", callback_data="coffee_catalog")]
-        ])
-    )
-    
-    # Формируем уведомление для администратора
-    admin_text = (
-        f"🔔 *Новый заказ!*\n"
-        f"Пользователь: {user_id} (@{message.from_user.username})\n"
-        f"{format_cart(cart)}\n"
-        f"Способ оплаты: Самовывоз (оплата при получении)\n"
-        f"Сумма: {total:.2f} руб.\n"
-        f"Комментарий: {comment}"
-    )
-    
-    try:
-        await bot.send_message(
-            chat_id=ADMIN_ID,
-            text=admin_text,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Ошибка при отправке уведомления администратору: {e}")
-    
-    # Очищаем корзину и сбрасываем состояние
-    await clear_cart(user_id)
-    await save_conversations_from_cache()
-    await state.clear()        
 
 @dp.callback_query(F.data == "pickup_online")
 async def pickup_online_handler(callback: CallbackQuery):
@@ -710,13 +678,18 @@ async def pickup_online_handler(callback: CallbackQuery):
     
     if not cart:
         await bot.send_message(callback.message.chat.id, "Ваша корзина пуста!")
+        await callback.message.delete()
+        await callback.answer()
         return
     
     total = sum(float(item["price"].replace(" руб.", "")) for item in cart)
     payment_url = "https://example.com/payment_stub"  # Сайт-заглушка для тестирования
     
+    # Генерируем номер заказа
+    order_number = generate_order_number()
+    
     order_text = (
-        f"🛒 *Ваш заказ:*\n"
+        f"🛒 *Заказ №{order_number}:*\n"
         f"{format_cart(cart)}\n"
         f"Способ оплаты: Самовывоз (оплата онлайн)\n"
         f"Сумма к оплате: {total:.2f} руб.\n\n"
@@ -732,28 +705,12 @@ async def pickup_online_handler(callback: CallbackQuery):
         ])
     )
     
-    # Очищаем корзину после перехода на оплату (или можно после успешной оплаты)
-    await clear_cart(user_id)
+    # Очищаем корзину после перехода на оплату, не возвращая остатки
+    await clear_cart(user_id, restore_quantity=False)
     await save_conversations_from_cache()
     
     await callback.message.delete()
-    await callback.answer()    
-    
-    await bot.send_message(
-        chat_id=callback.message.chat.id,
-        text=order_text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Вернуться в магазин", callback_data="coffee_catalog")]
-        ])
-    )
-    
-    # Очищаем корзину после оформления
-    await clear_cart(user_id)
-    await save_conversations_from_cache()
-    
-    await callback.message.delete()
-    await callback.answer()    
+    await callback.answer()
 
 @dp.message(Command("cart"))
 async def cart_handler(msg: Message):
@@ -777,7 +734,7 @@ async def cart_handler(msg: Message):
 
 @dp.callback_query(F.data == "clear_cart")
 async def clear_cart_handler(callback: CallbackQuery):
-    """Очищает корзину и возвращает количество"""
+    """Очищает корзину и возвращает остатки, если заказ не оплачен"""
     user_id = callback.from_user.id
     cart = await get_user_cart(user_id)
     if not cart:
@@ -789,7 +746,7 @@ async def clear_cart_handler(callback: CallbackQuery):
             ])
         )
     else:
-        await clear_cart(user_id)
+        await clear_cart(user_id, restore_quantity=True)  # Возвращаем остатки
         await bot.send_message(
             chat_id=callback.message.chat.id,
             text="Корзина очищена, товары возвращены в наличие!",
@@ -836,7 +793,6 @@ async def back_to_catalog(callback: CallbackQuery):
             text="Выберите кофе из каталога:",
             reply_markup=keyboard
         )
-        await callback.message.delete()
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при возврате к каталогу: {e}")
