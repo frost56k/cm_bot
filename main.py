@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-from datetime import datetime
 from typing import Dict, Any
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
@@ -11,6 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from openai import OpenAI
 from dotenv import load_dotenv
 import time
+from datetime import datetime
 import aiofiles
 from aiogram.types import BotCommand
 from aiogram.fsm.context import FSMContext
@@ -64,20 +64,25 @@ def load_bot_mind() -> str:
         logger.error(f"Error loading bot mind: {e}")
         return ""  
     
-def generate_order_number() -> str:
-    """Генерирует шестизначный номер заказа (например, 000001)"""
-    with open(ORDER_NUMBER_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        last_order_number = data["last_order_number"]
-    
-    new_order_number = last_order_number + 1
-    
-    with open(ORDER_NUMBER_FILE, 'w', encoding='utf-8') as f:
-        json.dump({"last_order_number": new_order_number}, f, ensure_ascii=False, indent=2)
-    
+async def generate_order_number() -> str:
+    try:
+        async with aiofiles.open(ORDER_NUMBER_FILE, 'r', encoding='utf-8') as f:
+            content = (await f.read()).strip()
+            if not content:
+                logger.warning(f"Файл {ORDER_NUMBER_FILE} пуст. Инициализируем с 0.")
+                data = {"last_order_number": 0}
+            else:
+                data = json.loads(content)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {"last_order_number": 0}
+
+    new_order_number = data["last_order_number"] + 1
+    async with aiofiles.open(ORDER_NUMBER_FILE, 'w', encoding='utf-8') as f:
+        await f.write(json.dumps({"last_order_number": new_order_number}, ensure_ascii=False, indent=2))
+
     formatted_number = f"{new_order_number:06d}"
     logger.info(f"Сгенерирован новый номер заказа: {formatted_number}")
-    return formatted_number    
+    return formatted_number 
 
 async def load_conversations_to_cache():
     """Загружает данные из файла в кэш"""
@@ -575,9 +580,9 @@ async def checkout_handler(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer()
 
+# Обработчик для самовывоза с оплатой при получении
 @dp.callback_query(F.data == "pickup_cash")
 async def pickup_cash_handler(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор самовывоза с оплатой при получении"""
     user_id = callback.from_user.id
     cart = await get_user_cart(user_id)
     
@@ -603,26 +608,36 @@ async def pickup_cash_handler(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
     
-    # Сохраняем данные о заказе в состоянии FSM
+    # Сохраняем данные и устанавливаем состояние
     await state.update_data(cart=cart, total=total, user_id=user_id)
     await state.set_state(OrderStates.waiting_for_comment)
+    logger.info(f"Установлено состояние waiting_for_comment для пользователя {user_id}")
     
     await callback.message.delete()
     await callback.answer()
 
+# Обработчик комментария к заказу
 @dp.message(OrderStates.waiting_for_comment)
 async def process_order_comment(message: Message, state: FSMContext):
-    """Обрабатывает комментарий к заказу и отправляет уведомления с номером заказа"""
     user_id = message.from_user.id
     comment = message.text.strip()
+    logger.info(f"Получен комментарий от {user_id}: {comment}")
     
     # Получаем данные из состояния
     data = await state.get_data()
+    logger.info(f"Данные из состояния: {data}")
+    if not data or "cart" not in data or "total" not in data:
+        logger.error(f"Некорректные данные состояния для {user_id}: {data}")
+        await message.answer("Ошибка: данные заказа потеряны. Попробуйте снова.")
+        await state.clear()
+        return
+    
     cart = data["cart"]
     total = data["total"]
     
     # Генерируем номер заказа
-    order_number = generate_order_number()
+    order_number = await generate_order_number()
+    logger.info(f"Сгенерирован номер заказа: {order_number}")
     
     # Формируем текст заказа для пользователя
     if comment.lower() == "нет":
@@ -637,38 +652,162 @@ async def process_order_comment(message: Message, state: FSMContext):
         f"Оплата наличными или картой при получении."
     )
     
-    await bot.send_message(
-        chat_id=message.chat.id,
-        text=user_order_text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Вернуться в магазин", callback_data="coffee_catalog")]
-        ])
-    )
+    try:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=user_order_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Вернуться в магазин", callback_data="coffee_catalog")]
+            ])
+        )
+        logger.info(f"Подтверждение отправлено пользователю {user_id}")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке подтверждения пользователю {user_id}: {e}")
+        await message.answer("Ошибка при отправке подтверждения. Попробуйте снова.")
+        return
+    
+    # Формируем данные заказа
+    order_data = {
+        "order_number": order_number,
+        "user_id": user_id,
+        "full_name": message.from_user.full_name,
+        "username": message.from_user.username,
+        "cart": cart,
+        "payment_method": "Самовывоз (оплата при получении)",
+        "total": total,
+        "comment": comment,
+        "issued": False,
+        "issue_date": None
+    }
+    
+    # Сохраняем заказ в pending_orders.json
+    try:
+        async with aiofiles.open("pending_orders.json", 'r', encoding='utf-8') as f:
+            content = await f.read()
+            pending_orders = json.loads(content) if content else {"orders": []}
+    except FileNotFoundError:
+        pending_orders = {"orders": []}
+    
+    pending_orders["orders"].append(order_data)
+    try:
+        async with aiofiles.open("pending_orders.json", 'w', encoding='utf-8') as f:
+            await f.write(json.dumps(pending_orders, ensure_ascii=False, indent=2))
+        logger.info(f"Заказ №{order_number} сохранён в pending_orders.json")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении заказа в pending_orders.json: {e}")
     
     # Формируем уведомление для администратора
     admin_text = (
         f"🔔 *Новый заказ №{order_number}!*\n"
-        f"Пользователь: {user_id} (@{message.from_user.username})\n"
+        f"Пользователь: {message.from_user.full_name} (ID: {user_id}, @{message.from_user.username})\n"
         f"{format_cart(cart)}\n"
         f"Способ оплаты: Самовывоз (оплата при получении)\n"
         f"Сумма: {total:.2f} руб.\n"
         f"Комментарий: {comment}"
     )
     
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Выдать заказ", callback_data=f"issue_order_{order_number}")]
+    ])
+    
     try:
         await bot.send_message(
             chat_id=ADMIN_ID,
             text=admin_text,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
+        logger.info(f"Уведомление отправлено администратору {ADMIN_ID}")
     except Exception as e:
         logger.error(f"Ошибка при отправке уведомления администратору {ADMIN_ID}: {e}")
     
-    # Очищаем корзину после оформления, не возвращая остатки
     await clear_cart(user_id, restore_quantity=False)
     await save_conversations_from_cache()
     await state.clear()
+    logger.info(f"Состояние очищено для пользователя {user_id}")
+
+@dp.callback_query(F.data.startswith("issue_order_"))
+async def confirm_issue_order(callback: CallbackQuery):
+    # Извлекаем номер заказа из callback_data
+    order_number = callback.data.split("_")[2]
+    
+    confirm_text = f"Вы уверены, что хотите подтвердить выдачу заказа №{order_number}?"
+    
+    # Создаем клавиатуру с кнопками подтверждения
+    confirm_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Подтвердить", callback_data=f"confirm_issue_{order_number}")],
+        [InlineKeyboardButton(text="Отмена", callback_data="cancel_issue")]
+    ])
+    
+    # Отправляем сообщение с подтверждением
+    await bot.send_message(
+        chat_id=callback.from_user.id,
+        text=confirm_text,
+        reply_markup=confirm_keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("confirm_issue_"))
+async def issue_order_confirmed(callback: CallbackQuery):
+    # Извлекаем номер заказа из callback_data
+    order_number = callback.data.split("_")[2]
+    
+    # Читаем данные из pending_orders.json
+    try:
+        async with aiofiles.open("pending_orders.json", 'r', encoding='utf-8') as f:
+            content = await f.read()
+            pending_orders = json.loads(content) if content else {"orders": []}
+    except FileNotFoundError:
+        await bot.send_message(callback.from_user.id, "Ошибка: файл pending_orders.json не найден!")
+        await callback.answer()
+        return
+    
+    # Находим заказ по номеру
+    order_data = next((order for order in pending_orders["orders"] if order["order_number"] == order_number), None)
+    if not order_data:
+        await bot.send_message(callback.from_user.id, f"Заказ №{order_number} не найден в ожидающих заказах!")
+        await callback.answer()
+        return
+    
+    # Обновляем статус заказа
+    order_data["issued"] = True
+    order_data["issue_date"] = datetime.now().isoformat()
+    
+    # Читаем существующий файл order_history.json
+    try:
+        async with aiofiles.open("order_history.json", 'r', encoding='utf-8') as f:
+            content = await f.read()
+            history = json.loads(content) if content else {"orders": []}
+    except FileNotFoundError:
+        history = {"orders": []}
+    
+    # Добавляем заказ в историю
+    history["orders"].append(order_data)
+    
+    # Записываем обновленные данные в order_history.json
+    async with aiofiles.open("order_history.json", 'w', encoding='utf-8') as f:
+        await f.write(json.dumps(history, ensure_ascii=False, indent=2))
+    
+    # Удаляем заказ из pending_orders.json
+    pending_orders["orders"] = [order for order in pending_orders["orders"] if order["order_number"] != order_number]
+    async with aiofiles.open("pending_orders.json", 'w', encoding='utf-8') as f:
+        await f.write(json.dumps(pending_orders, ensure_ascii=False, indent=2))
+    
+    # Отправляем сообщение об успешной выдаче
+    await bot.send_message(
+        chat_id=callback.from_user.id,
+        text=f"Заказ №{order_number} успешно выдан и записан в историю."
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "cancel_issue")
+async def cancel_issue(callback: CallbackQuery):
+    await bot.send_message(
+        chat_id=callback.from_user.id,
+        text="Выдача заказа отменена."
+    )
+    await callback.answer()      
 
 @dp.callback_query(F.data == "pickup_online")
 async def pickup_online_handler(callback: CallbackQuery):
@@ -812,6 +951,12 @@ async def back_to_main(callback: CallbackQuery):
 @dp.message(F.text)
 async def message_handler(msg: Message):
     """Обработчик текстовых сообщений"""
+    state = dp.fsm.get_context(bot, msg.from_user.id, msg.chat.id)
+    current_state = await state.get_state()
+    if current_state == OrderStates.waiting_for_comment.state:
+        logger.info(f"Сообщение '{msg.text}' пропущено, так как бот в состоянии waiting_for_comment")
+        return
+    
     user_id = msg.from_user.id
     user = msg.from_user
     user_message = msg.text
