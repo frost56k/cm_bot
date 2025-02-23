@@ -1,11 +1,11 @@
 # Исключаем виртуальные окружения
 .venv/
+.qodo
+.venv
 myenv/
 
 # Исключаем файлы конфигурации
 .env
-bot_mind.json
-conversations.json
 
 # Исключаем системные файлы
 *.pyc
