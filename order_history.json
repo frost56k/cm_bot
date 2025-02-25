@@ -163,6 +163,111 @@
       "comment": "Без комментария",
       "issued": true,
       "issue_date": "2025-02-23T20:21:38.233886"
+    },
+    {
+      "order_number": "000015",
+      "user_id": 222467350,
+      "full_name": "андрей черняков",
+      "username": "andreichar",
+      "cart": [
+        {
+          "coffee_index": 2,
+          "name": "Гватемала Фуэго Tasty Coffee, моноорт эспрессо в зернах",
+          "weight": "250",
+          "price": "29.82 руб."
+        },
+        {
+          "coffee_index": 2,
+          "name": "Гватемала Фуэго Tasty Coffee, моноорт эспрессо в зернах",
+          "weight": "1000",
+          "price": "114.05 руб."
+        }
+      ],
+      "payment_method": "Самовывоз (оплата при получении)",
+      "total": 143.87,
+      "comment": "Без комментария",
+      "issued": true,
+      "issue_date": "2025-02-24T17:03:06.022225"
+    },
+    {
+      "order_number": "000016",
+      "user_id": 694565110,
+      "full_name": "Кот Варгін",
+      "username": "kotvargin",
+      "cart": [
+        {
+          "coffee_index": 0,
+          "name": "Бразилия Серрадо Tasty Coffee, эспрессо-смесь в зернах",
+          "weight": "250",
+          "price": "25.44 руб."
+        }
+      ],
+      "payment_method": "Самовывоз (оплата при получении)",
+      "total": 25.44,
+      "comment": "Рома",
+      "issued": true,
+      "issue_date": "2025-02-24T17:03:42.334690"
+    },
+    {
+      "order_number": "000019",
+      "user_id": 694565110,
+      "full_name": "Кот Варгін",
+      "username": "kotvargin",
+      "cart": [
+        {
+          "coffee_index": 1,
+          "name": "Бразилия Серрадо Tasty Coffee, моноорт эспрессо в зернах",
+          "weight": "250",
+          "price": "24.91 руб."
+        }
+      ],
+      "payment_method": "Самовывоз (оплата при получении)",
+      "total": 24.91,
+      "comment": "Без комментария",
+      "issued": true,
+      "issue_date": "2025-02-24T18:03:27.033774"
+    },
+    {
+      "order_number": "000020",
+      "user_id": 222467350,
+      "full_name": "андрей черняков",
+      "username": "andreichar",
+      "cart": [
+        {
+          "coffee_index": 0,
+          "name": "Бразилия Серрадо Tasty Coffee, эспрессо-смесь в зернах",
+          "weight": "250",
+          "price": "25.44 руб."
+        }
+      ],
+      "payment_method": "Европочта (оплата при получении)",
+      "total": 25.44,
+      "recipient_name": "Джон Смит",
+      "address": "Ленина 1",
+      "post_office_number": "отделение 123",
+      "issued": true,
+      "issue_date": "2025-02-24T18:06:47.904943"
+    },
+    {
+      "order_number": "000021",
+      "user_id": 222467350,
+      "full_name": "андрей черняков",
+      "username": "andreichar",
+      "cart": [
+        {
+          "coffee_index": 5,
+          "name": "Эфиопия Ирачефф Tasty Coffee, моноорт эспрессо в зернах",
+          "weight": "1000",
+          "price": "100.88 руб."
+        }
+      ],
+      "payment_method": "Европочта (оплата при получении)",
+      "total": 100.88,
+      "recipient_name": "тест тест",
+      "address": "тест",
+      "post_office_number": "тест",
+      "issued": true,
+      "issue_date": "2025-02-24T20:15:39.971912"
     }
   ]
 }

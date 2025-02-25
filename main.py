@@ -18,7 +18,9 @@ from aiogram.fsm.state import State, StatesGroup
 
 # Определяем состояния для FSM (Finite State Machine)
 class OrderStates(StatesGroup):
-    waiting_for_comment = State()
+    waiting_for_comment = State()                # Ожидание комментария для самовывоза
+    waiting_for_recipient_name = State()         # Ожидание имени и фамилии для Европочты
+    waiting_for_post_office_number = State()     # Ожидание адреса и номера отделения для Европочты
 
 # Настройка логов
 logging.basicConfig(level=logging.INFO)
@@ -232,6 +234,7 @@ async def start_handler(msg: Message):
         f"Привет, {user.full_name}! Я — Кофе Мастер, ваш виртуальный помощник по ремонту кофемашин. 🛠️\n\n"
         f"Наш чат-бот проходит тестирование. Если увидите ошибки, пишите: coffeemasterbel@gmail.com\n"
         f"Используйте /coffeeshop, чтобы посмотреть каталог кофе."
+
     )
     await msg.answer(welcome_text)
     if str(user.id) not in conversations_cache:
@@ -459,7 +462,7 @@ async def add_to_cart_handler(callback: CallbackQuery):
         
         await bot.send_message(
             chat_id=callback.message.chat.id,
-            text=f"*{coffee['name']}* ({weight}г) добавлено в корзину!\nОсталось: {coffee[quantity_key] - 1}",
+            text=f"*{coffee['name']}* ({weight}г) /n добавлено в корзину!\nОсталось: {coffee[quantity_key] - 1}/n",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="В корзину", callback_data="view_cart")],
@@ -556,15 +559,18 @@ async def checkout_handler(callback: CallbackQuery):
     
     total = sum(float(item["price"].replace(" руб.", "")) for item in cart)
     checkout_text = (
-        f"🛒 *Ваш заказ:*\n"
+        f"*Оформление заказа.*\n"
+        f"\n"
         f"{format_cart(cart)}\n"
-        f"Выберите способ оплаты:"
+        f"Выберите способ оплаты:\n"
+        f"Самовывоз. Оплата при получении наличными или картой\n"
+        f"Европочта. Оплата при получении в отделении почты наличными или картой"
     )
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="Самовывоз (оплата при получении)", callback_data="pickup_cash"),
-            InlineKeyboardButton(text="Самовывоз (оплата онлайн)", callback_data="pickup_online")
+            InlineKeyboardButton(text="Самовывоз", callback_data="pickup_cash"),
+            InlineKeyboardButton(text="Европочта", callback_data="europochta_send")
         ],
         [
             InlineKeyboardButton(text="Назад к корзине", callback_data="view_cart")
@@ -598,7 +604,7 @@ async def pickup_cash_handler(callback: CallbackQuery, state: FSMContext):
         f"{format_cart(cart)}\n"
         f"Способ оплаты: Самовывоз (оплата при получении)\n"
         f"Сумма к оплате: {total:.2f} руб.\n\n"
-        f"Пожалуйста, добавьте комментарий к заказу (например, удобное время самовывоза) "
+        f"‼️ Пожалуйста, добавьте комментарий к заказу (например, удобное время самовывоза) "
         f"или напишите 'нет', если комментарий не нужен:"
     )
     
@@ -658,7 +664,7 @@ async def process_order_comment(message: Message, state: FSMContext):
             text=user_order_text,
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Вернуться в магазин", callback_data="coffee_catalog")]
+            [InlineKeyboardButton(text="Вернуться в магазин", callback_data="back_to_shop_from_order")]
             ])
         )
         logger.info(f"Подтверждение отправлено пользователю {user_id}")
@@ -809,34 +815,79 @@ async def cancel_issue(callback: CallbackQuery):
     )
     await callback.answer()      
 
-@dp.callback_query(F.data == "pickup_online")
-async def pickup_online_handler(callback: CallbackQuery):
-    """Обрабатывает выбор самовывоза с оплатой онлайн"""
+@dp.callback_query(F.data == "europochta_send")
+async def europochta_send_handler(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     cart = await get_user_cart(user_id)
     
     if not cart:
-        await bot.send_message(callback.message.chat.id, "Ваша корзина пуста!")
+        await bot.send_message(
+            chat_id=callback.message.chat.id,
+            text="Ваша корзина пуста!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Назад к каталогу", callback_data="coffee_catalog")]
+            ])
+        )
         await callback.message.delete()
         await callback.answer()
         return
     
+    # Запрашиваем имя и фамилию получателя
+    await bot.send_message(
+        chat_id=callback.message.chat.id,
+        text="Введите имя и фамилию получателя:"
+    )
+    await state.set_state(OrderStates.waiting_for_recipient_name)
+    await callback.message.delete()
+    await callback.answer()
+
+@dp.message(OrderStates.waiting_for_recipient_name)
+async def process_recipient_name(message: Message, state: FSMContext):
+    recipient_name = message.text.strip()
+    await state.update_data(recipient_name=recipient_name)
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text="Введите адрес получателя и номер отделения почты (например, 'ул. Ленина 10, отделение 123'):"
+    )
+    await state.set_state(OrderStates.waiting_for_post_office_number)
+
+@dp.message(OrderStates.waiting_for_post_office_number)
+async def process_post_office_number(message: Message, state: FSMContext):
+    user_input = message.text.strip()
+    data = await state.get_data()
+    recipient_name = data["recipient_name"]
+    user_id = message.from_user.id
+    cart = await get_user_cart(user_id)
     total = sum(float(item["price"].replace(" руб.", "")) for item in cart)
-    payment_url = "https://example.com/payment_stub"  # Сайт-заглушка для тестирования
+    
+    # Разделяем адрес и номер отделения
+    try:
+        address, post_office_number = [part.strip() for part in user_input.split(",", 1)]
+        if not address or not post_office_number:
+            raise ValueError("Пожалуйста, укажите и адрес, и номер отделения, разделённые запятой.")
+    except ValueError as e:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=str(e) if str(e) else "Пожалуйста, введите адрес и номер отделения в формате 'адрес, номер отделения'."
+        )
+        return
     
     # Генерируем номер заказа
-    order_number = generate_order_number()
+    order_number = await generate_order_number()
     
+    # Текст заказа для пользователя
     order_text = (
-        f"🛒 *Заказ №{order_number}:*\n"
+        f"✅ *Заказ №{order_number} оформлен!*\n"
         f"{format_cart(cart)}\n"
-        f"Способ оплаты: Самовывоз (оплата онлайн)\n"
-        f"Сумма к оплате: {total:.2f} руб.\n\n"
-        f"Перейдите по ссылке для оплаты:\n{payment_url}"
+        f"Способ оплаты: Европочта (оплата при получении)\n"
+        f"Получатель: {recipient_name}\n"
+        f"Адрес: {address}\n"
+        f"Номер отделения: {post_office_number}\n"
+        f"Оплата при получении в отделении почты."
     )
     
     await bot.send_message(
-        chat_id=callback.message.chat.id,
+        chat_id=message.chat.id,
         text=order_text,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -844,12 +895,58 @@ async def pickup_online_handler(callback: CallbackQuery):
         ])
     )
     
-    # Очищаем корзину после перехода на оплату, не возвращая остатки
+    # Данные заказа для сохранения
+    order_data = {
+        "order_number": order_number,
+        "user_id": user_id,
+        "full_name": message.from_user.full_name,
+        "username": message.from_user.username,
+        "cart": cart,
+        "payment_method": "Европочта (оплата при получении)",
+        "total": total,
+        "recipient_name": recipient_name,
+        "address": address,
+        "post_office_number": post_office_number,
+        "issued": False,
+        "issue_date": None
+    }
+    
+    # Сохранение в pending_orders.json
+    async with aiofiles.open("pending_orders.json", 'r', encoding='utf-8') as f:
+        content = await f.read()
+        pending_orders = json.loads(content) if content else {"orders": []}
+    
+    pending_orders["orders"].append(order_data)
+    async with aiofiles.open("pending_orders.json", 'w', encoding='utf-8') as f:
+        await f.write(json.dumps(pending_orders, ensure_ascii=False, indent=2))
+    
+    # Уведомление администратора
+    admin_text = (
+        f"🔔 *Новый заказ №{order_number}!*\n"
+        f"Пользователь: {message.from_user.full_name} (ID: {user_id}, @{message.from_user.username})\n"
+        f"{format_cart(cart)}\n"
+        f"Способ оплаты: Европочта (оплата при получении)\n"
+        f"Получатель: {recipient_name}\n"
+        f"Адрес: {address}\n"
+        f"Номер отделения: {post_office_number}\n"
+        f"Сумма: {total:.2f} руб."
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Выдать заказ", callback_data=f"issue_order_{order_number}")]
+    ])
+    
+    await bot.send_message(
+        chat_id=ADMIN_ID,
+        text=admin_text,
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+    
+    # Очистка корзины и состояния
     await clear_cart(user_id, restore_quantity=False)
     await save_conversations_from_cache()
-    
-    await callback.message.delete()
-    await callback.answer()
+    await state.clear()    
 
 @dp.message(Command("cart"))
 async def cart_handler(msg: Message):
@@ -927,6 +1024,8 @@ async def back_to_catalog(callback: CallbackQuery):
             coffee_list = data.get("coffee_shop", [])
         
         keyboard = get_coffee_catalog_keyboard(coffee_list)
+                # Удаляем сообщение с карточкой товара
+        await callback.message.delete()
         await bot.send_message(
             chat_id=callback.message.chat.id,
             text="Выберите кофе из каталога:",
@@ -936,7 +1035,28 @@ async def back_to_catalog(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка при возврате к каталогу: {e}")
         await callback.answer("Ошибка при загрузке каталога!")
+        logger.info(f"Пользователь {callback.from_user.id} вернулся к каталогу")
         await bot.send_message(callback.message.chat.id, "Ошибка при загрузке каталога!")
+
+@dp.callback_query(F.data == "back_to_shop_from_order")
+async def back_to_shop_from_order(callback: CallbackQuery):
+    """Возврат к каталогу из уведомления о заказе без удаления сообщения"""
+    try:
+        with open(BOT_MIND_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            coffee_list = data.get("coffee_shop", [])
+        
+        keyboard = get_coffee_catalog_keyboard(coffee_list)
+        await bot.send_message(
+            chat_id=callback.message.chat.id,
+            text="Выберите кофе из каталога:",
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при возврате к каталогу из заказа: {e}")
+        await callback.answer("Ошибка при загрузке каталога!")
+        await bot.send_message(callback.message.chat.id, "Ошибка при загрузке каталога!")        
 
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):

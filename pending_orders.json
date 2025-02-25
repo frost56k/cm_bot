@@ -24,6 +24,44 @@
       "comment": "Без комментария",
       "issued": false,
       "issue_date": null
+    },
+    {
+      "order_number": "000017",
+      "user_id": 694565110,
+      "full_name": "Кот Варгін",
+      "username": "kotvargin",
+      "cart": [
+        {
+          "coffee_index": 0,
+          "name": "Бразилия Серрадо Tasty Coffee, эспрессо-смесь в зернах",
+          "weight": "250",
+          "price": "25.44 руб."
+        }
+      ],
+      "payment_method": "Самовывоз (оплата при получении)",
+      "total": 25.44,
+      "comment": "Без комментария",
+      "issued": false,
+      "issue_date": null
+    },
+    {
+      "order_number": "000018",
+      "user_id": 694565110,
+      "full_name": "Кот Варгін",
+      "username": "kotvargin",
+      "cart": [
+        {
+          "coffee_index": 0,
+          "name": "Бразилия Серрадо Tasty Coffee, эспрессо-смесь в зернах",
+          "weight": "250",
+          "price": "25.44 руб."
+        }
+      ],
+      "payment_method": "Самовывоз (оплата при получении)",
+      "total": 25.44,
+      "comment": "Есть",
+      "issued": false,
+      "issue_date": null
     }
   ]
 }
