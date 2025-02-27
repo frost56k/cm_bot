@@ -62,28 +62,6 @@
       "comment": "Есть",
       "issued": false,
       "issue_date": null
-    },
-    {
-      "order_number": "000023",
-      "user_id": 222467350,
-      "full_name": "Имя пользователя",
-      "cart": [
-        {
-          "coffee_index": 4,
-          "name": "Коста-Рика Сан Хосе Tasty Coffee, моноорт в зернах",
-          "weight": "1000",
-          "price": "114.05 руб."
-        }
-      ],
-      "payment_method": "Европочта (оплата при получении)",
-      "total": 114.05,
-      "username": null,
-      "comment": null,
-      "recipient_name": "трамп",
-      "address": "ленина 10",
-      "post_office_number": "отделение 123",
-      "issued": false,
-      "issue_date": null
     }
   ]
 }

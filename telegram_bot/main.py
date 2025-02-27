@@ -18,9 +18,9 @@ async def main():
         dp = Dispatcher()
 
         # Подключаем роутеры
-        dp.include_router(coffee_router)  # Подключаем coffee_router раньше, чтобы обработать специфические callback
+        dp.include_router(user_router)
+        dp.include_router(coffee_router)
         dp.include_router(order_router)
-        dp.include_router(user_router)  # Подключаем user_router последним, чтобы обработать об
 
         # Загружаем кэш
         await load_conversations_to_cache()

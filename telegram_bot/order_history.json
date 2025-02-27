@@ -268,46 +268,6 @@
       "post_office_number": "тест",
       "issued": true,
       "issue_date": "2025-02-24T20:15:39.971912"
-    },
-    {
-      "order_number": "000022",
-      "user_id": 222467350,
-      "full_name": "Имя пользователя",
-      "cart": [
-        {
-          "coffee_index": 5,
-          "name": "Эфиопия Ирачефф Tasty Coffee, моноорт эспрессо в зернах",
-          "weight": "1000",
-          "price": "100.88 руб."
-        },
-        {
-          "coffee_index": 5,
-          "name": "Эфиопия Ирачефф Tasty Coffee, моноорт эспрессо в зернах",
-          "weight": "1000",
-          "price": "100.88 руб."
-        },
-        {
-          "coffee_index": 5,
-          "name": "Эфиопия Ирачефф Tasty Coffee, моноорт эспрессо в зернах",
-          "weight": "1000",
-          "price": "100.88 руб."
-        },
-        {
-          "coffee_index": 4,
-          "name": "Коста-Рика Сан Хосе Tasty Coffee, моноорт в зернах",
-          "weight": "250",
-          "price": "29.83 руб."
-        }
-      ],
-      "payment_method": "Самовывоз (оплата при получении)",
-      "total": 332.46999999999997,
-      "username": null,
-      "comment": "коментарий",
-      "recipient_name": null,
-      "address": null,
-      "post_office_number": null,
-      "issued": true,
-      "issue_date": "2025-02-27T20:03:51.098974"
     }
   ]
 }

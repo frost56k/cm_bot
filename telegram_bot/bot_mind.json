@@ -216,8 +216,8 @@
       "price_250g": "29.83 руб.",
       "price_1000g": "114.05 руб.",
       "image_url": "https://shop.lakava.by/wp-content/uploads/natti-1-600x600.png",
-      "quantity_250g": 4,
-      "quantity_1000g": 4
+      "quantity_250g": 5,
+      "quantity_1000g": 5
     },
     {
       "name": "Эфиопия Ирачефф Tasty Coffee, моноорт эспрессо в зернах",
@@ -226,7 +226,7 @@
       "price_1000g": "100.88 руб.",
       "image_url": "https://shop.lakava.by/wp-content/uploads/irgacheff-1-600x600.png",
       "quantity_250g": 0,
-      "quantity_1000g": 0
+      "quantity_1000g": 3
     }
   ]
 }
