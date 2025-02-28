@@ -8,23 +8,96 @@ import json
 import logging
 from datetime import datetime
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, User
 
 
 logger = logging.getLogger(__name__)
 
-# services/order_service.py (фрагменты)
+
 async def create_pickup_order(user_id: int, bot: Bot, comment: str, cart: list[dict], total: float) -> str:
+    # Получаем данные пользователя через Telegram API
+    user = await bot.get_chat(user_id)
+    full_name = user.full_name if user.full_name else "Неизвестный пользователь"
+    username = user.username
+
     order_number = await generate_order_number()
     order = Order(
         order_number=order_number,
         user_id=user_id,
-        full_name="Имя пользователя",  # Замени на реальное имя из сообщения
-        username=None,  # Замени на реальный username, если доступен
-        cart=cart,  # cart уже список словарей
+        full_name=full_name,
+        username=username,
+        cart=cart,
         payment_method="Самовывоз (оплата при получении)",
         total=total,
         comment=comment if comment.lower() != "нет" else "Без комментария",
+        issued=False,
+        issue_date=None
+    )
+    
+    order_data = order.__dict__
+    await save_pending_order(order_data)
+    
+    user_order_text = (
+        f"✅ *Заказ №{order_number} оформлен!*\n"
+        f"🛒 *Ваш заказ:*\n"
+        f"{''.join(f'- {item['name']} ({item['weight']}г) - {item['price']}\n' for item in cart)}\n"
+        f"Способ оплаты: Самовывоз (оплата при получении)\n"
+        f"Комментарий: {order.comment}\n"
+        f"Заберите ваш заказ по адресу: город Минск ул. Неждановой д. 37 понедельник - пятница 9-17 часов\n"
+        f"Оплата наличными или картой при получении."
+    )
+    
+    await bot.send_message(
+        chat_id=user_id,
+        text=user_order_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Вернуться в магазин", callback_data="coffee_catalog")]
+        ])
+    )
+    
+    admin_text = (
+        f"🔔 *Новый заказ №{order_number}!*\n"
+        f"Пользователь: {full_name} (ID: {user_id}, @{username})\n"
+        f"🛒 *Заказ:*\n"
+        f"{''.join(f'- {item['name']} ({item['weight']}г) - {item['price']}\n' for item in cart)}\n"
+        f"Способ оплаты: Самовывоз (оплата при получении)\n"
+        f"Сумма: {total:.2f} руб.\n"
+        f"Комментарий: {order.comment}"
+    )
+    
+    await bot.send_message(
+        chat_id=ADMIN_ID,
+        text=admin_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Выдать заказ", callback_data=f"issue_order_{order_number}")]
+        ])
+    )
+    
+    await clear_cart(user_id, restore_quantity=False)
+    logger.info(f"Заказ №{order_number} создан и сохранён для пользователя {user_id}")
+    return order_number
+
+# services/order_service.py (фрагменты)
+async def create_europochta_order(user_id: int, bot: Bot, recipient_name: str, address: str, post_office_number: str, cart: list[dict], total: float) -> str:
+    # Получаем данные пользователя через Telegram API
+    user: User = await bot.get_chat(user_id)
+    full_name = user.full_name if user.full_name else "Неизвестный пользователь"
+    username = user.username
+
+    order_number = await generate_order_number()
+    order = Order(
+        order_number=order_number,
+        user_id=user_id,
+        full_name=full_name,  # Реальное имя пользователя
+        username=username,    # Реальный username (если есть)
+        cart=cart,           # cart уже список словарей
+        payment_method="Европочта (оплата при получении)",
+        total=total,
+        recipient_name=recipient_name,
+        address=address,
+        post_office_number=post_office_number,
         issued=False,
         issue_date=None
     )

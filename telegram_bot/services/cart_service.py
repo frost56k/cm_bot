@@ -7,10 +7,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def get_user_cart(user_id: int) -> list[CartItem]:
-    """Получает корзину пользователя из кэша."""
+async def get_user_cart(user_id: int) -> list[dict]:
+    """Получает корзину пользователя из кэша как список словарей."""
     conversation = await get_conversation(user_id) or {"user_info": {}, "messages": [], "cart": []}
-    return [CartItem(**item) for item in conversation.get("cart", [])]
+    return conversation.get("cart", [])
 
 async def add_to_cart(user_id: int, coffee_index: int, weight: str) -> None:
     """Добавляет товар в корзину и уменьшает количество для выбранного веса."""
@@ -33,16 +33,16 @@ async def add_to_cart(user_id: int, coffee_index: int, weight: str) -> None:
     if getattr(coffee, quantity_key) <= 0 or getattr(coffee, price_key) is None:
         raise ValueError("Товар с таким весом отсутствует в наличии!")
 
-    # Создаём объект CartItem
-    cart_item = CartItem(
-        coffee_index=coffee_index,
-        name=coffee.name,
-        weight=weight,
-        price=getattr(coffee, price_key)
-    )
+    # Создаём словарь для корзины (вместо объекта CartItem)
+    cart_item = {
+        "coffee_index": coffee_index,
+        "name": coffee.name,
+        "weight": weight,
+        "price": getattr(coffee, price_key)
+    }
 
     # Добавляем товар в корзину
-    conversation["cart"].append(cart_item.__dict__)
+    conversation["cart"].append(cart_item)
     await save_conversation(user_id, conversation)
 
     # Уменьшаем количество в наличии
@@ -66,10 +66,10 @@ async def clear_cart(user_id: int, restore_quantity: bool = False) -> None:
             coffee_list = data.get("coffee_shop", [])
 
         for item in conversation["cart"]:
-            cart_item = CartItem(**item)
-            coffee = Coffee(**coffee_list[cart_item.coffee_index])
-            quantity_key = f"quantity_{cart_item.weight}g"
-            coffee_list[cart_item.coffee_index][quantity_key] += 1
+            # Используем словарь напрямую, т.к. cart теперь содержит словари
+            coffee = Coffee(**coffee_list[item["coffee_index"]])
+            quantity_key = f"quantity_{item['weight']}g"
+            coffee_list[item["coffee_index"]][quantity_key] += 1
 
         with open(BOT_MIND_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)

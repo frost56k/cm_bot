@@ -238,3 +238,17 @@ async def clear_cart_handler(callback: CallbackQuery):
         )
     await callback.message.delete()
     await callback.answer()
+
+@router.callback_query(F.data == "back_to_shop_from_order")
+async def back_to_shop_from_order(callback: CallbackQuery):
+    with open("bot_mind.json", 'r', encoding='utf-8') as f:
+        coffee_list = json.load(f).get("coffee_shop", [])
+    
+    await callback.message.delete()
+    await callback.bot.send_message(
+        chat_id=callback.message.chat.id,
+        text="Выберите кофе из каталога:",
+        reply_markup=get_coffee_catalog_keyboard(coffee_list)
+    )
+    await callback.answer()
+    logger.info(f"Пользователь {callback.from_user.id} вернулся к каталогу из заказа")    

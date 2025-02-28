@@ -22,17 +22,16 @@ class CartItem:
 
 @dataclass
 class Order:
-    """Модель для представления заказа."""
     order_number: str
     user_id: int
     full_name: str
-    cart: List[CartItem]  # Перенесено выше
+    cart: List[dict]  # Перемещён перед параметрами с значениями по умолчанию
     payment_method: str
     total: float
-    issued: bool = False  # Поля с значениями по умолчанию идут в конце
-    username: Optional[str] = None
+    username: Optional[str] = None  # Перемещён вниз, с значением по умолчанию
     comment: Optional[str] = None
     recipient_name: Optional[str] = None
     address: Optional[str] = None
     post_office_number: Optional[str] = None
+    issued: bool = False
     issue_date: Optional[str] = None

@@ -1,15 +1,11 @@
-# handlers/order_handlers.py
 from aiogram import Router, types, F
-import asyncio
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from services.order_service import create_pickup_order, create_europochta_order, issue_order
-from services.cart_service import get_user_cart
+from services.cart_service import get_user_cart, clear_cart
 from utils.utils import format_cart
 from states.states import OrderStates
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import asyncio
 
 router = Router()
 
@@ -35,7 +31,7 @@ async def checkout_handler(callback: CallbackQuery):
         await callback.answer()
         return
     
-    total = sum(float(item.price.replace(" руб.", "")) for item in cart)
+    total = sum(float(item["price"].replace(" руб.", "")) for item in cart)  # Изменено с item.price на item["price"]
     checkout_text = (
         f"*Оформление заказа.*\n"
         f"\n"
@@ -75,7 +71,7 @@ async def pickup_cash_handler(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     
-    total = sum(float(item.price.replace(" руб.", "")) for item in cart)
+    total = sum(float(item["price"].replace(" руб.", "")) for item in cart)  # Изменено с item.price на item["price"]
     order_text = (
         f"🛒 *Ваш заказ:*\n"
         f"{format_cart(cart)}\n"
@@ -147,7 +143,7 @@ async def process_post_office_number(message: Message, state: FSMContext):
     recipient_name = data["recipient_name"]
     user_id = message.from_user.id
     cart = await get_user_cart(user_id)
-    total = sum(float(item.price.replace(" руб.", "")) for item in cart)
+    total = sum(float(item["price"].replace(" руб.", "")) for item in cart)  # Изменено с item.price на item["price"]
     
     try:
         address, post_office_number = [part.strip() for part in user_input.split(",", 1)]

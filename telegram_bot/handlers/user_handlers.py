@@ -21,7 +21,7 @@ async def start_handler(msg: types.Message):
         await update_chat_history(user.id, "", "user")  # Инициализация пустой истории
     logger.info(f"Пользователь {user.id} начал работу с ботом")
 
-@router.message(F.text)
+@router.message(F.text, ~F.text.startswith('/'))  # Игнорируем команды, начинающиеся с "/"
 async def message_handler(msg: types.Message):
     user_id = msg.from_user.id
     user_message = msg.text

@@ -178,9 +178,9 @@
       "name": "Бразилия Серрадо Tasty Coffee, эспрессо-смесь в зернах",
       "description": "Этот кофе идеально подходит для эспрессо, с мягким и кремовым вкусом, подчеркивающим шоколадные нотки благодаря специальной обжарке. Без выраженной кислинки, с плотной текстурой.",
       "price_250g": "25.44 руб.",
-      "price_1000g": null,
+      "price_1000g": "94.30 руб.",
       "image_url": "https://shop.lakava.by/wp-content/uploads/serrado-1-600x600.png",
-      "quantity_250g": 95,
+      "quantity_250g": 100,
       "quantity_1000g": 100
     },
     {
@@ -189,7 +189,7 @@
       "price_250g": "24.91 руб.",
       "price_1000g": "94.30 руб.",
       "image_url": "https://shop.lakava.by/wp-content/uploads/serrado-1-600x600.png",
-      "quantity_250g": 4,
+      "quantity_250g": 5,
       "quantity_1000g": 5
     },
     {
@@ -198,8 +198,8 @@
       "price_250g": "29.82 руб.",
       "price_1000g": "114.05 руб.",
       "image_url": "https://shop.lakava.by/wp-content/uploads/kendi-1-600x600.png",
-      "quantity_250g": 4,
-      "quantity_1000g": 4
+      "quantity_250g": 5,
+      "quantity_1000g": 5
     },
     {
       "name": "Колумбия Бокота Tasty Coffee, моноорт эспрессо в зернах",
@@ -216,8 +216,8 @@
       "price_250g": "29.83 руб.",
       "price_1000g": "114.05 руб.",
       "image_url": "https://shop.lakava.by/wp-content/uploads/natti-1-600x600.png",
-      "quantity_250g": 4,
-      "quantity_1000g": 4
+      "quantity_250g": 3,
+      "quantity_1000g": 3
     },
     {
       "name": "Эфиопия Ирачефф Tasty Coffee, моноорт эспрессо в зернах",
@@ -225,8 +225,8 @@
       "price_250g": "26.52 руб.",
       "price_1000g": "100.88 руб.",
       "image_url": "https://shop.lakava.by/wp-content/uploads/irgacheff-1-600x600.png",
-      "quantity_250g": 0,
-      "quantity_1000g": 0
+      "quantity_250g": 5,
+      "quantity_1000g": 5
     }
   ]
 }

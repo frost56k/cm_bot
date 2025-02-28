@@ -13,14 +13,15 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
 
-async def create_pickup_order(user_id: int, bot: Bot, comment: str, cart: list[CartItem], total: float) -> str:
+# services/order_service.py (фрагменты)
+async def create_pickup_order(user_id: int, bot: Bot, comment: str, cart: list[dict], total: float) -> str:
     order_number = await generate_order_number()
     order = Order(
         order_number=order_number,
         user_id=user_id,
         full_name="Имя пользователя",  # Замени на реальное имя из сообщения
         username=None,  # Замени на реальный username, если доступен
-        cart=cart,
+        cart=cart,  # cart уже список словарей
         payment_method="Самовывоз (оплата при получении)",
         total=total,
         comment=comment if comment.lower() != "нет" else "Без комментария",
@@ -34,7 +35,7 @@ async def create_pickup_order(user_id: int, bot: Bot, comment: str, cart: list[C
     user_order_text = (
         f"✅ *Заказ №{order_number} оформлен!*\n"
         f"🛒 *Ваш заказ:*\n"
-        f"{''.join(f'- {item.name} ({item.weight}г) - {item.price}\n' for item in cart)}\n"
+        f"{''.join(f'- {item['name']} ({item['weight']}г) - {item['price']}\n' for item in cart)}\n"
         f"Способ оплаты: Самовывоз (оплата при получении)\n"
         f"Комментарий: {order.comment}\n"
         f"Заберите ваш заказ по адресу: город Минск ул. Неждановой д. 37 понедельник - пятница 9-17 часов\n"
@@ -54,7 +55,7 @@ async def create_pickup_order(user_id: int, bot: Bot, comment: str, cart: list[C
         f"🔔 *Новый заказ №{order_number}!*\n"
         f"Пользователь: {order.full_name} (ID: {user_id}, @{order.username})\n"
         f"🛒 *Заказ:*\n"
-        f"{''.join(f'- {item.name} ({item.weight}г) - {item.price}\n' for item in cart)}\n"
+        f"{''.join(f'- {item['name']} ({item['weight']}г) - {item['price']}\n' for item in cart)}\n"
         f"Способ оплаты: Самовывоз (оплата при получении)\n"
         f"Сумма: {total:.2f} руб.\n"
         f"Комментарий: {order.comment}"
@@ -73,14 +74,14 @@ async def create_pickup_order(user_id: int, bot: Bot, comment: str, cart: list[C
     logger.info(f"Заказ №{order_number} создан и сохранён для пользователя {user_id}")
     return order_number
 
-async def create_europochta_order(user_id: int, bot: Bot, recipient_name: str, address: str, post_office_number: str, cart: list[CartItem], total: float) -> str:
+async def create_europochta_order(user_id: int, bot: Bot, recipient_name: str, address: str, post_office_number: str, cart: list[dict], total: float) -> str:
     order_number = await generate_order_number()
     order = Order(
         order_number=order_number,
         user_id=user_id,
         full_name="Имя пользователя",  # Замени на реальное имя из сообщения
         username=None,  # Замени на реальный username, если доступен
-        cart=cart,
+        cart=cart,  # cart уже список словарей
         payment_method="Европочта (оплата при получении)",
         total=total,
         recipient_name=recipient_name,
@@ -96,7 +97,7 @@ async def create_europochta_order(user_id: int, bot: Bot, recipient_name: str, a
     order_text = (
         f"✅ *Заказ №{order_number} оформлен!*\n"
         f"🛒 *Ваш заказ:*\n"
-        f"{''.join(f'- {item.name} ({item.weight}г) - {item.price}\n' for item in cart)}\n"
+        f"{''.join(f'- {item['name']} ({item['weight']}г) - {item['price']}\n' for item in cart)}\n"
         f"Способ оплаты: Европочта (оплата при получении)\n"
         f"Получатель: {recipient_name}\n"
         f"Адрес: {address}\n"
@@ -117,7 +118,7 @@ async def create_europochta_order(user_id: int, bot: Bot, recipient_name: str, a
         f"🔔 *Новый заказ №{order_number}!*\n"
         f"Пользователь: {order.full_name} (ID: {user_id}, @{order.username})\n"
         f"🛒 *Заказ:*\n"
-        f"{''.join(f'- {item.name} ({item.weight}г) - {item.price}\n' for item in cart)}\n"
+        f"{''.join(f'- {item['name']} ({item['weight']}г) - {item['price']}\n' for item in cart)}\n"
         f"Способ оплаты: Европочта (оплата при получении)\n"
         f"Получатель: {recipient_name}\n"
         f"Адрес: {address}\n"
